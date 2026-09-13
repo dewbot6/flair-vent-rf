@@ -1,0 +1,15 @@
+Error in resetup():Exception('No Dongle Found.  Please insert a RFCAT dongle.')
+PING: 26 bytes transmitted, received: b'ABCDEFGHIJKLMNOPQRSTUVWXYZ' (0.003056 seconds)
+PING: 26 bytes transmitted, received: b'ABCDEFGHIJKLMNOPQRSTUVWXYZ' (0.003081 seconds)
+PING: 26 bytes transmitted, received: b'ABCDEFGHIJKLMNOPQRSTUVWXYZ' (0.003077 seconds)
+PING: 26 bytes transmitted, received: b'ABCDEFGHIJKLMNOPQRSTUVWXYZ' (0.003081 seconds)
+PING: 26 bytes transmitted, received: b'ABCDEFGHIJKLMNOPQRSTUVWXYZ' (0.003070 seconds)
+PING: 26 bytes transmitted, received: b'ABCDEFGHIJKLMNOPQRSTUVWXYZ' (0.003167 seconds)
+PING: 26 bytes transmitted, received: b'ABCDEFGHIJKLMNOPQRSTUVWXYZ' (0.003078 seconds)
+PING: 26 bytes transmitted, received: b'ABCDEFGHIJKLMNOPQRSTUVWXYZ' (0.003092 seconds)
+PING: 26 bytes transmitted, received: b'ABCDEFGHIJKLMNOPQRSTUVWXYZ' (0.003141 seconds)
+PING: 26 bytes transmitted, received: b'ABCDEFGHIJKLMNOPQRSTUVWXYZ' (0.003067 seconds)
+ping: (10, 0, 0.030950069427490234)
+Configured: D7A-like Normal Rate (55.555k GFSK)
+Done. 0 captures out of 200000 iterations.
+===== RESETUP set from recv thread

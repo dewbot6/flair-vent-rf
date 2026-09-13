@@ -1,0 +1,38 @@
+PING: 26 bytes transmitted, received: b'ABCDEFGHIJKLMNOPQRSTUVWXYZ' (0.003106 seconds)
+PING: 26 bytes transmitted, received: b'ABCDEFGHIJKLMNOPQRSTUVWXYZ' (0.003094 seconds)
+PING: 26 bytes transmitted, received: b'ABCDEFGHIJKLMNOPQRSTUVWXYZ' (0.003077 seconds)
+PING: 26 bytes transmitted, received: b'ABCDEFGHIJKLMNOPQRSTUVWXYZ' (0.003152 seconds)
+PING: 26 bytes transmitted, received: b'ABCDEFGHIJKLMNOPQRSTUVWXYZ' (0.003104 seconds)
+PING: 26 bytes transmitted, received: b'ABCDEFGHIJKLMNOPQRSTUVWXYZ' (0.003068 seconds)
+PING: 26 bytes transmitted, received: b'ABCDEFGHIJKLMNOPQRSTUVWXYZ' (0.003091 seconds)
+PING: 26 bytes transmitted, received: b'ABCDEFGHIJKLMNOPQRSTUVWXYZ' (0.003083 seconds)
+PING: 26 bytes transmitted, received: b'ABCDEFGHIJKLMNOPQRSTUVWXYZ' (0.003083 seconds)
+PING: 26 bytes transmitted, received: b'ABCDEFGHIJKLMNOPQRSTUVWXYZ' (0.003084 seconds)
+ping: (10, 0, 0.031026124954223633)
+Configured: D7A-like Normal Rate (55.555k GFSK)
+  ...heartbeat: 20000 iters, 5.1s elapsed, 0 hits so far
+  ...heartbeat: 40000 iters, 10.2s elapsed, 0 hits so far
+  ...heartbeat: 60000 iters, 15.2s elapsed, 0 hits so far
+  ...heartbeat: 80000 iters, 20.3s elapsed, 0 hits so far
+  ...heartbeat: 100000 iters, 25.4s elapsed, 0 hits so far
+  ...heartbeat: 120000 iters, 30.4s elapsed, 0 hits so far
+  ...heartbeat: 140000 iters, 35.4s elapsed, 0 hits so far
+  ...heartbeat: 160000 iters, 40.4s elapsed, 0 hits so far
+  ...heartbeat: 180000 iters, 45.4s elapsed, 0 hits so far
+  ...heartbeat: 200000 iters, 50.4s elapsed, 0 hits so far
+  ...heartbeat: 220000 iters, 55.4s elapsed, 0 hits so far
+  ...heartbeat: 240000 iters, 60.4s elapsed, 0 hits so far
+  ...heartbeat: 260000 iters, 65.4s elapsed, 0 hits so far
+  ...heartbeat: 280000 iters, 70.4s elapsed, 0 hits so far
+  ...heartbeat: 300000 iters, 75.3s elapsed, 0 hits so far
+  ...heartbeat: 320000 iters, 80.3s elapsed, 0 hits so far
+  ...heartbeat: 340000 iters, 85.3s elapsed, 0 hits so far
+  ...heartbeat: 360000 iters, 90.4s elapsed, 0 hits so far
+  ...heartbeat: 380000 iters, 95.6s elapsed, 0 hits so far
+  ...heartbeat: 400000 iters, 100.7s elapsed, 0 hits so far
+  ...heartbeat: 420000 iters, 105.9s elapsed, 0 hits so far
+  ...heartbeat: 440000 iters, 111.0s elapsed, 0 hits so far
+  ...heartbeat: 460000 iters, 116.0s elapsed, 0 hits so far
+  ...heartbeat: 480000 iters, 121.1s elapsed, 0 hits so far
+  ...heartbeat: 500000 iters, 126.1s elapsed, 0 hits so far
+  ...heartbeat: 520000 iters, 131.2s elapsed, 0 hits so far
