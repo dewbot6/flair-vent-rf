@@ -480,6 +480,85 @@ Working setup for reference:
 Note the CC430 emits a `len=16 type=0x0F` frame repeatedly with no ESP8266
 present; not investigated, plausibly a host-absent or retry notice.
 
+### [2026-09-18] RF: the search space is much smaller than previously assumed
+
+Earlier sweeps treated (datarate, deviation) as a free 2-D search and were
+abandoned as hopeless. But the FCC filing's *measured* occupied bandwidth of
+93-96 kHz constrains them via Carson's rule:
+
+    BW ~= 2 * (deviation + datarate/2)   =>   deviation + datarate/2 ~= 47 kHz
+
+That is a curve, not a plane -- about **nine candidate configs**, enumerated in
+`rf_sweep_constrained.py`. Worth noting the config tested in step 11 above
+(38.4 kbps / **20 kHz** deviation) is NOT on this curve; the matching deviation
+would be ~27.8 kHz. The one hypothesis previously tested was internally
+inconsistent with the FCC bandwidth it was derived from.
+
+**How to judge a hit.** With no sync word the demodulator cannot byte-align,
+and the payload is very likely whitened, so "readable bytes" is the wrong
+criterion -- it will never be satisfied even with correct parameters. The
+preamble survives both problems: it is unwhitened and alternating, so it shows
+as a long single-value byte run or strong period-1 autocorrelation. Noise sits
+at adjacent-equal ~0.004.
+
+**First sweep attempt was INCONCLUSIVE, not negative.** Run passively (no UART
+trigger), 6 of 9 configs captured *zero bytes* -- their windows contained no
+transmission, so those configs were never tested at all. The 3 that did
+capture sat at the noise baseline. Do not record this as ruling anything out.
+
+To run it properly: keep the CC430 powered from whatever supply is convenient
+and add the CH340 for **UART only** (TX/RX, no power line, avoiding a supply
+conflict), then `python3 rf_sweep_constrained.py --port /dev/cu.usbserial-XXXX`
+so each config is tested against a commanded transmission.
+
+Also fixed here: `rf_triggered.py`'s original capture loop hit a 40-chunk cap
+instantly by draining rflib's buffered backlog, ending each "9 second" window
+in milliseconds. Wall time is the real bound; the chunk cap only exists as a
+runaway guard.
+
+### [BLOCKED 2026-09-18] Spy-Bi-Wire attempt -- FET fine, target not answering
+
+Tried reading the CC430's radio registers over SBW with an eZ-FET LaunchPad
+(USB `2047:0013`) and `mspdebug 0.26` (already installed via brew).
+
+Setup: LaunchPad `TEST`->CC430 `TEST` (SBWTCK), LaunchPad `RST`->CC430 `MDIO`
+(SBWTDIO), CC430 powered at 3.3V from the LaunchPad, CH340 unplugged.
+
+Results -- the FET itself is healthy (reports firmware 3.10.0.3, core 0x1d,
+sets target VCC), but the target never responds:
+
+| invocation | failure |
+|---|---|
+| `mspdebug ezfet` | `Fetching JTAG ID` -> `fid 0x0c: HAL exception: 0xffff` |
+| `+ --force-reset` | identical |
+| `+ -v 3300` | identical |
+| `--fet-force-id CC430F5137` | gets further (`Device: CC430F5137`) then `fid 0x07: HAL exception: 0xffc9` |
+
+So this is a physical-layer problem, not a driver or device-ID one.
+
+Ruled out: LaunchPad isolation jumpers are pulled, GND *is* bonded between the
+boards, target power is present, and the CC430 still works normally when
+reconnected to the ESP8266 (nothing has been damaged).
+
+Remaining causes, in order of likelihood:
+1. **Lead length.** The `MDIO`/`TEST` leads are ~8". SBW multiplexes
+   bidirectional data and clock onto one wire with tight timing and is
+   sensitive to capacitance and ringing; TI specifies short connections. 8" of
+   unshielded flying lead plausibly rounds off the edges SBW entry needs.
+   Shorten to 2-3" before concluding anything else.
+2. **Wires tapped from the wrong side of the jumper header.** Pulling the
+   jumpers splits it into a debugger half and an onboard-MCU half; wiring to
+   the MCU half leaves the eZ-FET connected to nothing and looks identical to
+   this failure. Not yet visually confirmed.
+3. **A capacitor on the RST/SBWTDIO line.** Many designs put ~100nF on reset;
+   it slows the edges SBW needs and silently breaks entry. Requires lifting
+   the cap to rule out.
+4. **JTAG/SBW fuse blown** by Flair. Would look exactly like this, but it is
+   the *last* thing to conclude, not the first.
+
+**Do not treat SBW as "tried and failed" on the strength of this.** Nothing
+above rules the approach out; only cause 4 would, and it is untested.
+
 Still unconfirmed: whether intermediate values actually work. Only 0 and 100
 have ever been observed, because the app exposes no percentage control. That's
 now directly testable by forging `byte[22]=50` -- see next steps.
