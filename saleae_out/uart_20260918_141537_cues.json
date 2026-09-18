@@ -1,0 +1,41 @@
+{
+  "duration": 420.0,
+  "channels": [
+    0,
+    1
+  ],
+  "cues": [
+    {
+      "t": 30.0,
+      "label": "TOGGLE #1: set vent OPEN  (then leave it alone)"
+    },
+    {
+      "t": 73.75,
+      "label": "TOGGLE #2: set vent CLOSE  (then leave it alone)"
+    },
+    {
+      "t": 117.5,
+      "label": "TOGGLE #3: set vent OPEN  (then leave it alone)"
+    },
+    {
+      "t": 161.25,
+      "label": "TOGGLE #4: set vent CLOSE  (then leave it alone)"
+    },
+    {
+      "t": 205.0,
+      "label": "TOGGLE #5: set vent OPEN  (then leave it alone)"
+    },
+    {
+      "t": 248.75,
+      "label": "TOGGLE #6: set vent CLOSE  (then leave it alone)"
+    },
+    {
+      "t": 292.5,
+      "label": "TOGGLE #7: set vent OPEN  (then leave it alone)"
+    },
+    {
+      "t": 336.25,
+      "label": "TOGGLE #8: set vent CLOSE  (then leave it alone)"
+    }
+  ]
+}

@@ -21,6 +21,14 @@ MAX_CHUNKS_PER_BURST = 24     # cap: 24 * 255 = ~6120 bytes max per burst
 INTER_READ_TIMEOUT_MS = 30    # short -- if FIFO is empty this fast, burst likely ended
 MAX_SECONDS = 240
 
+# Real vent/puck traffic has consistently measured -40 to -50 dBm in every
+# capture so far. Environmental noise/interference at this frequency is
+# much weaker but still occasionally crosses a loose threshold (see
+# CLAUDE.md notes on this being a noisy ISM band). Raise the squelch well
+# above the noise floor and much closer to real signal strength so we stop
+# triggering on background interference.
+THRESHOLD_OVERRIDE_DBM = -55
+
 
 def capture_burst(d):
     """Called right after an RSSI trigger. Pulls consecutive RFrecv reads
@@ -35,7 +43,7 @@ def capture_burst(d):
     chunks = []
     for _ in range(MAX_CHUNKS_PER_BURST):
         rssi = c.rssi_dbm(d.getRSSI())
-        if rssi <= c.THRESHOLD_DBM:
+        if rssi <= THRESHOLD_OVERRIDE_DBM:
             break
         try:
             data, _ = d.RFrecv(timeout=INTER_READ_TIMEOUT_MS)
@@ -74,10 +82,11 @@ if __name__ == "__main__":
     burst_count = 0
     while time.time() - start < MAX_SECONDS:
         rssi = c.rssi_dbm(d.getRSSI())
-        if rssi > c.THRESHOLD_DBM:
+        if rssi > THRESHOLD_OVERRIDE_DBM:
             burst = capture_burst(d)
             burst_count += 1
-            print(f"\n=== Burst {burst_count}: {len(burst)} bytes, trigger RSSI {rssi:.1f} dBm ===", flush=True)
+            elapsed = time.time() - start
+            print(f"\n=== Burst {burst_count} [t={elapsed:.2f}s, wallclock={time.time():.2f}]: {len(burst)} bytes, trigger RSSI {rssi:.1f} dBm ===", flush=True)
             print(burst.hex(), flush=True)
             regions = find_periodic_region(burst)
             strong = [r for r in regions if r[2] > 0.6]

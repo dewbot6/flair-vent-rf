@@ -291,6 +291,330 @@ def gated_capture(max_iters=2000, note=""):
 # gated_capture(2000, note="baseline silence check, puck off")
 ```
 
+## MAJOR BREAKTHROUGH: Puck teardown + UART sniffing (2026-09)
+
+Physically opened the Puck. Two PCBs inside:
+- One board: ESP-12F (ESP8266) + display -- handles WiFi/cloud connectivity.
+- Other board: **TI CC430F5136** (confirmed against the real CC430F513x
+  datasheet, 48-pin RGZ package) -- this is the actual sub-1GHz radio, an
+  MSP430 MCU with a CC1101-core radio integrated on-die. Test points found:
+  GND, VCC, Button, I2C_CL, I2C_DA, URX, MCLK, TEST, ENC_B, ENC_A, 5V, UTX,
+  MDIO. `TEST` = SBWTCK and (almost certainly) `MDIO` = RST/NMI/SBWTDIO --
+  together these are a full Spy-Bi-Wire debug interface (pins 39/40 on the
+  datasheet), a possible future path to a full firmware dump if ever needed.
+
+**URX/UTX are a plain UART link between the ESP8266 and the CC430**,
+115200 baud, 8N1, no parity, LSB-first, non-inverted -- confirmed by
+decoding real ASCII boot log text at that exact config. Sniffed first with
+a Saleae Logic 8 (2-channel simultaneous capture, safe since it's pure
+listen-only), later with a single USB-TTL adapter for continued monitoring
+(RX-only, GND, **never connect TX** -- this is a live 2-device bus, adding
+a driving TX would cause bus contention with whichever chip already drives
+that line).
+
+Boot log confirms the ESP8266 board (test point group "UTX"/Channel 0 in
+the Saleae capture) prints: custom app boot messages ("System init...",
+"Global constructors invoked", "EZFLAG:5dc6", "RELEASE: Device type
+detected:2"), then standard ESP8266 NONOS SDK WiFi driver text ("mode :
+sta(mac)", "add if0", "scandone", "no Gipsy Danger IOT found, reconnect
+after 1s"). "Gipsy Danger IOT" is presumably an internal/joke SSID or
+service name, not something to read into further.
+
+### Confirmed binary frame protocol (ESP8266 <-> CC430 internal link)
+
+Frame format: `{` (0x7B) + 1-byte length N (**counts itself**, i.e. total
+frame content including this byte) + (N-1) more bytes + `}` (0x7D). Last 2
+content bytes are a **CRC-16, now fully cracked -- see below**.
+Byte 1 of content (right after the length byte) is `00`, byte 2
+is a **direction/source marker**: `01` on ESP8266-originated frames
+(labelled "Async Serial"/Channel 0 in Saleae, no text ever seen on CC430's
+side), `11` on CC430-originated frames (Channel 1, carries the actual
+command/status traffic and "TX succeeded" text).
+
+Two frame types seen so far on the CC430->ESP8266 side (Channel 1 / URX):
+1. **Steady-state status frame** (56 bytes), repeats every few seconds
+   basically unchanged, e.g.:
+   `38 00 11 00 01 00 00 00 01 00 46 81 9E E3 00 1D 00 0F 20 00 <2-byte
+   counter> 75 27 <2 bytes> 00 00 00 00 00 00 61 07 73 62 <varies> 00 <1-2
+   varies> 00 00 88 00 00 98 00 9F 00 09 00 00 00 <2 bytes> <2-byte
+   checksum>`. Looks like general telemetry/heartbeat, not itself the
+   command.
+2. **Command/transaction frame** (56 bytes), appears only right when a
+   real open/close command is issued, always with this distinctive header:
+   `38 00 11 00 01 00 00 00 01 00 00 12 4B 00 38 0D 16 FD 03 00 ...`.
+   Appears ~2-5 seconds before a `TX succeeded` text line -- this is almost
+   certainly the ESP8266 (or CC430 relaying back) confirming the actual
+   over-the-air RF transmission to the vent.
+
+### [2026-09-18] Header structure: it's a src/dst addressed bus
+
+Byte 2 isn't just a direction flag -- the header carries real 16-bit
+source/destination addresses, and they swap cleanly with direction. Verified
+100% consistent across all 1278 CRC-valid frames:
+
+```
+byte0    LEN (counts itself)        byte4-5  message type (16-bit LE)
+byte1    00                         byte6-7  SOURCE addr
+byte2    dir/flags                  byte8-9  DEST addr
+byte3    00
+```
+
+| direction | byte2 | src | dst | frames |
+|---|---|---|---|---|
+| ESP8266 -> CC430 | `0x01` | `0x0001` | `0x0000` | 168 |
+| CC430 -> ESP8266 | `0x11` | `0x0000` | `0x0001` | 1110 |
+
+So **ESP8266 = node 0x0001, CC430 = node 0x0000**, and `0x11` looks like
+`0x01` plus a `0x10` "from node 0" / response flag.
+
+Direction confirmed the unambiguous way: `uart_monitor_live.log` is the only
+capture containing ESP8266 NONOS SDK text (`scandone`, `mode : sta`,
+`add if0`, `Gipsy Danger`), and every frame in it is `0x01`/src=`0x0001`.
+All other logs are `0x11` and carry the `TX succeeded` text (the CC430
+reporting its own RF transmit). Each capture only ever sniffed ONE wire.
+
+**Consequence: `uart_replay.py` replays the wrong direction.** Its captured
+open/close frames are `0x11`, src=`0x0000`, dst=`0x0001` -- i.e. addressed
+*to* the ESP8266, from the CC430. Sending those at the CC430 is telling it
+"here is a message from yourself, addressed to someone else", which it should
+ignore. Any direct-drive attempt needs `0x01`/src=`0x0001`/dst=`0x0000`
+frames instead.
+
+### [SOLVED 2026-09-18] The ESP->CC430 position command, captured at last
+
+Two-channel Saleae capture (`saleae_out/uart_20260918_141537.*`, 420s, 8 cued
+toggles) finally caught the ESP8266 -> CC430 command. The two frames differ in
+**exactly one byte** (plus the CRC):
+
+```
+CLOSE  38 00 01 00 05 00 01 00 00 00 00 12 4b 00 38 0d 16 fd 00 00 00 00 00 00 ...  ba 74
+OPEN   38 00 01 00 05 00 01 00 00 00 00 12 4b 00 38 0d 16 fd 00 00 00 00 64 00 ...  5f bb
+                                                                         ^^ byte[22]
+```
+
+**byte[22] of the ESP->CC430 command frame is the target position:
+`0x00` = CLOSED, `0x64` (100) = OPEN.** Scored 6/6 across every window where
+a command was actually present (the first two cues produced no command frames
+at all -- the Puck was still connecting).
+
+Cross-check: forging `byte[22]=0` and `byte[22]=100` with `flair_frame.reseal()`
+reproduces the captured CRCs `ba 74` and `5f bb` byte-for-byte.
+
+**The command is desired STATE, not an event.** The ESP re-sends this frame
+every ~6 seconds with the current target until it changes -- it does not fire
+once per button press. That matters twice over: it's why a "look for a rare
+frame" heuristic finds nothing, and it means driving the CC430 directly is a
+matter of repeating a state frame rather than timing a one-shot.
+
+Cloud round-trip latency from app tap to changed byte measured at **~9s**.
+
+#### `byte[28]` of the CC430 reply = REPORTED position, same polarity
+
+Settled by direct experiment: when commanded to 100 the reply's `byte[28]`
+became `0x64`; when commanded to 50 it became `0x32`. It echoes the commanded
+position on the **same** scale as `byte[22]`, and **lags by a few seconds**.
+
+Two earlier claims in this file about this byte were wrong and are withdrawn:
+1. That it had *inverted* polarity (`0x00` = open). It does not.
+2. That it was *not a position field at all*. It is.
+
+Both errors came from reading tiny, lagging samples: ~9 CC430-side frames
+split 5x`0x64`/2x`0x00`, and a later live window where it appeared pinned at
+`0x00` because the sampled frames fell either side of the transition rather
+than during it. The `0x00`-while-closed observation that triggered the second
+retraction is in fact *consistent* with same-polarity (0 = closed) -- it was
+misread as contradictory.
+
+Lesson worth keeping: this byte lags the command, and the frames carrying it
+are sparse (one every ~25s). Sparse + lagging is exactly the combination that
+manufactures spurious correlations in short windows. Prefer a commanded
+experiment over passive observation when a field is this slow.
+
+#### [CONFIRMED] `byte[22]` = commanded position, verified physically
+
+`byte[22]` of the **ESP8266 -> CC430 command frame** is the commanded
+position. It is the *only* byte differing between the captured OPEN and CLOSE
+command frames, and scored 6/6 across every window containing a command.
+
+Absolute mapping confirmed 2026-09-18 by listening on the ESP8266's transmit
+line while toggling from the app and watching the vent itself:
+
+| `byte[22]` | vent, physically observed |
+|---|---|
+| `0x64` (100) | **OPEN** |
+| `0x00` (0) | **CLOSED** |
+
+Both held steady across 16 and 11 consecutive frames respectively, with the
+transition landing within seconds of the app command. This also confirms
+directly that the command is **desired state re-sent every ~6s**, not a
+one-shot event -- the same value repeats indefinitely until it changes.
+
+So the earlier worry about inverted open/close was unfounded for this byte:
+the Saleae cue labels were correct, and `0x64 = open` reads naturally as
+"% open". (The retraction above concerns `byte[28]` of the CC430's *reply*,
+which is a different field and is not a position at all.)
+
+### [MILESTONE 2026-09-18] Direct control achieved, and the scale is PROPORTIONAL
+
+The ESP8266 board was removed entirely and the CC430 board powered from the
+USB-TTL adapter. `cc430_drive.py` then commanded the vent directly with forged
+frames -- no Puck firmware in the loop at all.
+
+**Confirmed working at four points: 0, 25, 50 and 100**, each producing the
+corresponding physical vent position (closed, quarter, half, open).
+
+`byte[22]` is therefore a genuine **0-100 percentage, not a binary flag** --
+a capability the Flair app itself does not expose, since it only offers
+open/closed. This answers the question left open since the first UART
+captures.
+
+Working setup for reference:
+- ESP8266 board removed (its RST is sandwiched between the PCBs and
+  unreachable, so holding it in reset was never an option -- removal was)
+- CC430 board powered from the adapter
+- Adapter RX on the CC430's transmit test point, TX on its receive test point.
+  If nothing arrives at all, the wires are the likely cause: RX must be on the
+  line the CC430 *drives*. Silence looks identical to a dead chip.
+- `.venv/bin/python cc430_drive.py /dev/cu.usbserial-XXXX --position 50`
+
+Note the CC430 emits a `len=16 type=0x0F` frame repeatedly with no ESP8266
+present; not investigated, plausibly a host-absent or retry notice.
+
+Still unconfirmed: whether intermediate values actually work. Only 0 and 100
+have ever been observed, because the app exposes no percentage control. That's
+now directly testable by forging `byte[22]=50` -- see next steps.
+
+### [HISTORICAL -- now solved, see above] The ESP->CC430 command gap
+
+The `0x64`/`0x00` position byte at offset 28 lives in **CC430 -> ESP8266**
+frames -- the CC430 *reporting*, not the ESP *commanding*. The presumed flow:
+
+1. ESP8266 gets a command from the cloud
+2. **ESP8266 -> CC430: "move to position X"  <-- NEVER CAPTURED**
+3. CC430 transmits over RF to the vent
+4. CC430 -> ESP8266: status incl. position, then `TX succeeded` text
+
+We have 4751 frames of step 4 and only 168 frames of the step-2 direction --
+and those 168 contain just **4 unique frames**, none with a varying position
+byte (24 of them are byte-identical repeats of a command-header frame that
+looks like a periodic poll, not a state change). So the vent was almost
+certainly never toggled during that one 358s capture.
+
+**This is the single blocking unknown.** Everything downstream -- forging a
+command, driving the CC430 directly, and getting a repeatable on-demand RF
+trigger to aim the YARD Stick One at -- depends on capturing step 2.
+
+### [SOLVED 2026-09-18] Frame CRC-16 cracked -- we can now forge frames
+
+The trailing 2 bytes are a CRC-16 with these parameters:
+
+| Parameter | Value |
+|---|---|
+| width | 16 |
+| polynomial | `0x1021` |
+| **init** | **`0x1021`** |
+| xorout | `0x0000` |
+| reflect in / out | false / false (MSB-first) |
+| covered range | `content[:-2]` -- the length byte through the last body byte, **excluding** the `0x7B`/`0x7D` delimiters |
+| stored as | **little-endian** (low byte first) |
+
+**Verified on 6109/6109 well-formed frames (100%)** across every
+`uart_monitor_*.log` capture, plus the two hand-captured open/close command
+frames in `uart_replay.py` that were never part of the log corpus.
+
+Why the earlier brute-force attempts (`crack_checksum.py`,
+`crack_checksum2.py`) missed it: **`init` == the polynomial, `0x1021`.** Every
+`crcmod` predefined CRC-16 variant uses init `0x0000` or `0xFFFF`, so no amount
+of searching byte ranges with a predefined algorithm list could ever have hit
+it. `crack_checksum2.py` also required *all* frames in a length group to match,
+so a single dropped-byte frame would have suppressed a correct answer anyway.
+
+How it was actually found, for future reference -- the generalizable technique:
+1. **Test the whole CRC family at once instead of guessing parameters.** For
+   fixed-length messages, `crc(A) XOR crc(B)` depends only on `A XOR B`, and
+   that map is GF(2)-linear, *for any poly/init/xorout*. Building
+   `[data_diff | cksum_diff]` rows and row-reducing gave **0 linear
+   contradictions across 1101 frames** (~1034 independent 16-bit checks) --
+   proving it was a CRC before a single parameter was guessed.
+2. **Recover the polynomial alone.** Because XOR-differencing cancels init and
+   xorout entirely, brute-forcing only the 65536 polynomials against a few
+   difference vectors uniquely yielded `0x1021`, MSB-first, little-endian.
+   (Leading zero bytes of a difference vector don't affect an init=0 CRC, so
+   differences can be stripped for speed.)
+3. **Recover init/xorout from the residual.** `crc_init0(data) XOR stored` was
+   constant within each length group but varied *between* lengths -- the
+   signature of a non-zero init. Solving that across length groups gave
+   `init=0x1021, xorout=0x0000`.
+
+`flair_frame.py` implements this: `crc16()`, `check()`, `build(body)` and
+`reseal(content)` (edit a captured frame, get a valid one back). Running it
+directly re-verifies every log: `python3 flair_frame.py`.
+
+**This unblocks forging arbitrary frames**, which in turn is what's needed to
+test the position-byte hypothesis below by commanding positions the app never
+exposes.
+
+**Byte 28 of this command frame (0-indexed, i.e. the 29th content byte)
+is the key finding**: confirmed **`0x64` (100 decimal) on 3 independent
+close commands**, **`0x00` on 1 open command**, across multiple sessions
+minutes/hours apart. Strong candidate for a target-position field (0-100
+scale, "% closed" or similar internal convention -- not yet confirmed
+which direction is 0 vs 100 in Flair's own semantics, just that it flips
+cleanly between the two known states). Bytes at positions 20 and 25 also
+differ between samples but look more like a sequence number/session
+counter than a command-type field (differ between same-direction repeats
+too).
+
+**Not yet confirmed**: exact percentage encoding (app doesn't expose a
+percentage slider; Home Assistant integration tested and also didn't
+accept an arbitrary percent). **Now directly testable** -- with the CRC
+cracked we can forge a command frame with byte 28 set to any intermediate
+value (e.g. 0x32 = 50) and see whether the vent physically moves to a
+partial position, which settles both the scale and its direction.
+Note the bus-contention constraint: the ESP8266 must be held in reset or
+disconnected before driving URX, per the replay-testing note above. Also
+haven't captured the actual **over-the-air RF frame** that corresponds to
+one of these UART command frames -- that's the next step, now with a
+precise timing window (command frame appears -> RF TX happens within
+~2-5s, confirmed by the following "TX succeeded" text) to aim a
+YARD-Stick-One capture at instead of blind RSSI gating.
+
+### Scripts added for this phase
+- `flair_frame.py` -- the frame CRC + `build()`/`reseal()` frame forging.
+  Run directly to re-verify every capture log.
+- `decode_uart.py` -- parses a Saleae Logic 2 Async Serial CSV export
+  (both channels) into text runs and `{...}` binary frames.
+- `uart_monitor.py` -- live pyserial-based monitor for continued
+  single-wire TTL adapter monitoring (same frame-parsing logic, real-time).
+- `saleae_capture.py` -- drives the Logic 8 over Logic 2's automation API to
+  capture BOTH UART directions at once, printing timed OPEN/CLOSE toggle cues
+  and writing a cue sidecar so commands can be correlated afterwards.
+- `cc430_drive.py` -- drives the CC430 directly from a 3.3V USB-TTL adapter
+  with the ESP8266 held in reset, repeating the position command on the real
+  ~6s cadence. Refuses to transmit until a listen-only pre-flight confirms the
+  CC430 is alive and the ESP has actually gone quiet.
+- `analyze_capture.py` -- decodes that export, identifies each channel's
+  direction from the frame header (so wiring order doesn't matter), and diffs
+  the frames following OPEN cues against those following CLOSE cues to find
+  the command byte.
+
+**Saleae tooling setup** (Logic 2.4.46, needs its own venv -- `grpcio` has no
+Python 3.14 wheels, and 3.14 is the default `python3` on this machine):
+```bash
+/Library/Frameworks/Python.framework/Versions/3.13/bin/python3.13 -m venv .venv
+.venv/bin/pip install logic2-automation
+```
+Logic 2 must have **Preferences -> Automation -> "Enable automation server"**
+checked (gRPC on 127.0.0.1:10430). The setting lives in Electron local
+storage, so it can only be flipped in the GUI.
+
+Validated end to end against Logic 2's simulation device and a synthetic
+capture: `analyze_capture.py` correctly identified both directions and
+recovered a planted position byte at offset 28. Note it ranks candidate bytes
+by scatter -- a byte holding one value per state is flagged STRONG, while a
+sequence/counter byte that separates by luck is demoted. With only 2 samples
+per state a random byte can separate by chance, so **run at least 6-8 toggles**.
+
 ## Standing constraints / preferences
 - Prefer USB-connected solution (not ESP32-based) so it plugs directly into
   the Home Assistant host.
