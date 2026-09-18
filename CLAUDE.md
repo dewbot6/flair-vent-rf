@@ -501,20 +501,46 @@ preamble survives both problems: it is unwhitened and alternating, so it shows
 as a long single-value byte run or strong period-1 autocorrelation. Noise sits
 at adjacent-equal ~0.004.
 
-**First sweep attempt was INCONCLUSIVE, not negative.** Run passively (no UART
-trigger), 6 of 9 configs captured *zero bytes* -- their windows contained no
-transmission, so those configs were never tested at all. The 3 that did
-capture sat at the noise baseline. Do not record this as ruling anything out.
+#### [MEASURED] The transmission's actual timing -- this is the key new fact
 
-To run it properly: keep the CC430 powered from whatever supply is convenient
-and add the CH340 for **UART only** (TX/RX, no power line, avoiding a supply
-conflict), then `python3 rf_sweep_constrained.py --port /dev/cu.usbserial-XXXX`
-so each config is tested against a commanded transmission.
+Sitting at 915.0 MHz and sampling RSSI ~4400 times/second after a single
+commanded position change:
 
-Also fixed here: `rf_triggered.py`'s original capture loop hit a 40-chunk cap
-instantly by draining rflib's buffered backlog, ending each "9 second" window
-in milliseconds. Wall time is the real bound; the chunk cap only exists as a
-runaway guard.
+    PEAK -42 dBm at t = 11.72s, lasting ~10 ms
+
+So the over-the-air burst:
+- **lags the UART command by seconds, and the lag VARIES** (11.7s, 10.9s,
+  3.6s, 3.6s observed). It is not the "2-5s" previously assumed.
+- **lasts only ~10 ms** -- roughly 48 bytes at 38.4 kbps. A short packet.
+- is easily detectable: -41 to -52 dBm against a ~-88 dBm floor.
+
+**This invalidated every sweep run before it was measured.** Windows of 8-12s
+were closing before the transmission fired, so "no structure" results were
+measuring empty air. Any future RF work must either wait >22s per trial or
+trigger on the RSSI spike. RSSI polling is fast enough to catch a 10ms burst;
+a per-frequency dwell of a second or two is not.
+
+#### Sweep result with correct timing: genuine negative
+
+With RSSI-triggered grabs and windows long enough to outlast the lag, bursts
+were captured (peaks -41 to -52 dBm) at 2FSK across 9600/19200/38400/50000/
+55555 bps on the bandwidth curve, at RX filter widths 94k/135k/200k/270k.
+
+None demodulate into structure. `0xAA`+`0x55` counts match chance almost
+exactly; sliding-window analysis over 48-byte spans (the packet is a ~48-byte
+island in ~1500 bytes of surrounding noise, so whole-buffer statistics drown
+it) finds nothing above selection-bias level. Stray long `0xFF` runs appear
+sporadically across *unrelated* configs, marking them as a receiver artifact
+rather than framing -- one such run of 10 looked promising and did not
+reproduce in 4 repeat trials.
+
+Still-open explanations, none tested: modulation is not plain 2FSK (GFSK
+shaping, 4-FSK, MSK); the rate/deviation pair sits off the Carson
+approximation; or the CC1111 needs correct sync/packet config to lock at all.
+
+**This is why SBW matters.** Reading the CC430's actual radio registers
+replaces all of the above guessing with ~20 known values. Blind search has now
+been given a fair, properly-instrumented run and did not converge.
 
 ### [BLOCKED 2026-09-18] Spy-Bi-Wire attempt -- FET fine, target not answering
 

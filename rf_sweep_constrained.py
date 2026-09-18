@@ -45,23 +45,36 @@ def candidates():
     return out
 
 
-def capture_window(d, seconds, max_chunks=600):
-    """Drain RF for a wall-clock window.
+def capture_window(d, seconds, ser=None, build=None, send_every=3.0, max_chunks=2000):
+    """Drain RF continuously for a wall-clock window, triggering as we go.
 
-    max_chunks is deliberately high: rflib buffers in the dongle, so RFrecv
-    returns a backlog immediately and a low cap ends the window in
-    milliseconds while appearing to have run for seconds. Wall time is the
-    real bound; the cap only exists so this can never run away.
+    Deliberately does NOT gate on RSSI. A packet is only ~10ms long and
+    getRSSI() is a USB round trip, so polling walks straight past the burst --
+    which is why earlier windows came back empty even though the vent
+    demonstrably moved. Draining unconditionally captures noise too, but the
+    packet is in there, and the preamble score is what separates them.
+
+    Commands are re-sent throughout the window, alternating position, because
+    the CC430 appears to transmit on CHANGE -- one command per config gives
+    exactly one brief burst to catch.
+
+    max_chunks only exists as a runaway guard; wall time is the real bound.
     """
     chunks = []
     end = time.time() + seconds
+    next_send = 0.0
+    pos_toggle = True
     while time.time() < end and len(chunks) < max_chunks:
-        if cap.rssi_dbm(d.getRSSI()) > TRIGGER_DBM:
-            try:
-                data, _ = d.RFrecv(timeout=100)
-                chunks.append(data)
-            except ChipconUsbTimeoutException:
-                pass
+        if ser and time.time() >= next_send:
+            ser.write(build(100 if pos_toggle else 0))
+            ser.flush()
+            pos_toggle = not pos_toggle
+            next_send = time.time() + send_every
+        try:
+            data, _ = d.RFrecv(timeout=60)
+            chunks.append(data)
+        except ChipconUsbTimeoutException:
+            pass
     return b"".join(chunks)
 
 
@@ -96,6 +109,7 @@ def main():
     args = p.parse_args()
 
     ser = None
+    build = None
     if args.port:
         import serial
         import cc430_drive as cd
@@ -109,10 +123,7 @@ def main():
     try:
         for i, (rate, dev) in enumerate(candidates()):
             cap.configure(d, f"{rate}bps dev={dev}", MOD_2FSK, rate, dev, CHAN_BW, args.freq)
-            if ser:
-                ser.write(build(100 if i % 2 == 0 else 0))
-                ser.flush()
-            buf = capture_window(d, args.window)
+            buf = capture_window(d, args.window, ser=ser, build=build)
             runlen, ac, val = preamble_score(buf)
             flag = ""
             if runlen >= 6 or ac > 0.05:
