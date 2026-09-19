@@ -501,6 +501,77 @@ preamble survives both problems: it is unwhitened and alternating, so it shows
 as a long single-value byte run or strong period-1 autocorrelation. Noise sits
 at adjacent-equal ~0.004.
 
+### [SOLVED 2026-09-18] THE RF PHY. YARD Stick One receives the vent protocol.
+
+Cracked by capturing raw IQ with an RTL-SDR (Nooelec NESDR SMArt v5) and
+measuring the signal instead of guessing at it. Confirmed end to end: the YARD
+Stick One now locks on and returns real packets.
+
+```
+Frequency      915.0 MHz
+Modulation     2FSK
+Data rate      38400 bps
+Deviation      ~20 kHz            (measured ~19-21 kHz from the IQ)
+RX filter      ~105 kHz
+Preamble       0xAA
+Sync word      0xD391, SENT TWICE (32-bit sync; SYNCM_30_of_32 works)
+Packet         first byte = length
+Whitening      NONE
+```
+
+Working rflib setup:
+```python
+d.setFreq(915000000); d.setMdmModulation(MOD_2FSK)
+d.setMdmDRate(38400); d.setMdmDeviatn(20000); d.setMdmChanBW(105000)
+d.setMdmSyncWord(0xD391); d.setMdmSyncMode(SYNCM_30_of_32)
+d.setEnableMdmManchester(False); d.makePktFLEN(40); d.setModeRX()
+```
+
+**The RF payload is the same application data as the UART link**, unwhitened:
+```
+3c 46 81 9e e3 00 1d 00 0f 00 12 4b 00 38 0d 16 fd 60 83 43 ...
+^^ length      ^^ UART heartbeat sig   ^^ UART command sig
+```
+So the UART protocol work above (frame layout, the `byte[22]` position command)
+should carry almost directly into forging RF packets.
+
+#### Why this took so long -- the missing piece was the sync word
+
+Step 11 above tested **38.4 kbps / 20 kHz deviation** -- essentially the
+correct PHY -- and recorded "zero autocorrelation structure". That conclusion
+was wrong, and the reason matters: with `setMdmSyncMode(0)` the radio never
+byte-aligns, so a perfectly demodulated packet still emerges as a
+bit-shifted stream indistinguishable from noise. **The parameters were right;
+the receiver had nothing to lock onto.** Every subsequent hypothesis (DASH7,
+chirp spread spectrum, whitening) was built on top of that false negative.
+
+The Carson-rule constraint curve derived earlier is also *wrong for this
+signal*: it pairs 38400 bps with ~27.8 kHz deviation, but the true deviation
+is ~20 kHz. Carson is an approximation and the FCC's 99%-power occupied
+bandwidth is not the same quantity; treating the curve as authoritative
+actively excluded the correct answer.
+
+#### Method worth reusing: measure, don't sweep
+
+The CC1111 is a *hardware* demodulator -- it makes an irreversible slicing
+decision from its configured parameters, so a wrong guess yields noise and the
+signal is gone. Discovering unknown parameters that way means one live burst
+per guess, with no way to re-analyse.
+
+An RTL-SDR records raw IQ, so **one** captured burst can be analysed offline
+forever:
+- FFT of the burst -> two FSK lobes, and the spacing IS the deviation.
+- Instantaneous frequency histogram -> bimodal, confirming 2FSK.
+- Demodulate at a candidate rate, then pack bits at all 8 bit offsets and look
+  for `0xAA` preamble runs. At the right rate and offset the sync word and
+  payload appear in plain sight.
+
+Bit-offset packing is the trick that made it visible: at offset 1 the stream
+read `aa aa aa aa d3 91 d3 91 16 00 12 4b ...` -- preamble, sync, length,
+payload.
+
+Getting the burst at all also depends on the timing measured below.
+
 #### [MEASURED] The transmission's actual timing -- this is the key new fact
 
 Sitting at 915.0 MHz and sampling RSSI ~4400 times/second after a single
