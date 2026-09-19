@@ -560,18 +560,48 @@ field, not at an arbitrary offset.
 Which physical device is which is not yet pinned down. The TI OUI is
 suggestive but both ends are TI silicon, so it is not decisive on its own.
 
-#### [OPEN] The RF body is high-entropy -- position byte not visible
+#### [CONFIRMED] The RF application payload is ENCRYPTED
 
-Bodies begin with a plausible type/control byte (`0x42`, `0x43`, `0x60`,
-`0x7D`) and an incrementing sequence byte, after which they look random.
-Crucially, **the `0x00`/`0x64` position value that is plainly visible in the
-UART command frame does not appear anywhere in the RF body**, across packets
-captured while alternating commanded position.
+Established from a 6-minute dual UART+RF capture with the ESP8266 reconnected
+and the Puck running normally (`dual_capture.json`, 151 UART frames, 50 RF
+packets, several app-initiated open/close commands).
 
-So the RF application payload is probably encrypted or scrambled above the PHY
--- which would make forging a position command harder than the UART work
-suggests. Not yet investigated; do not assume the UART frame layout maps
-one-to-one onto the RF body.
+Body layout, after the addresses:
+
+```
+body[0..1]  type / control   (constant per packet class: 60 83, 60 0B, 7D A3, 7D 2B, ...)
+body[2]     sequence counter (clean increment: 2e 2f 30 31 ... 3a)
+body[3..]   ENCRYPTED
+```
+
+Measured across packets of the same class, same direction, same vent state:
+
+| class | n | mean byte-difference from body[3:] | entropy |
+|---|---|---|---|
+| len 60, other->TI | 13 | **0.997** | 7.13 bits/byte |
+| len 22, other->TI | 12 | 0.995 | 7.03 |
+| len 60, TI->other | 11 | 0.997 | 6.99 |
+| len 22, TI->other | 10 | 0.994 | 6.97 |
+
+Essentially every byte after the counter changes on every packet, at near-
+maximum entropy. Plaintext carrying only a changing timestamp would show a
+*low* difference rate. This is a per-packet cipher, with `body[2]` serving as
+the nonce/counter.
+
+Normal operation also revealed a repeating **4-packet exchange** (60/22/60/22
+alternating direction) sharing one counter value -- a request/response
+handshake invisible when the CC430 has no ESP8266 to talk to.
+
+**Consequence for the project goal.** RF *framing* is solved and the YARD Stick
+receives cleanly, but the payload cannot be read or forged without the key.
+Controlling the vent over RF with no Puck therefore requires extracting key
+material from the CC430 -- which makes **Spy-Bi-Wire the critical path, not a
+backup plan**. See the SBW section below; shorter leads are the next thing to
+try.
+
+Note there is already a working control path today: driving the CC430 over
+UART gives full proportional control (see the milestone above). It just needs
+Puck hardware in the loop, which the original goal wanted to avoid.
 
 #### Why this took so long -- the missing piece was the sync word
 
