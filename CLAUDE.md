@@ -804,6 +804,39 @@ from a flash constant -> global (shareable); if derived from a device-unique
 value -> per-device. Method note that worked: the decompiler finds structure
 that byte/constant searches miss -- reach for it first next time.
 
+#### [2026-09-19] Full mode: XTEA-CTR (from FUN_0000bf34)
+
+`FUN_0000bf34(buf, len, *counter)` is the encrypt/decrypt entry. Decompiled:
+
+```c
+do {
+   0x289c=0x4321; 0x289e=0x8765; 0x28a0=counter_lo; 0x28a2=counter_hi; // block
+   FUN_0000ac12();                    // XTEA-encrypt the 64-bit block in place
+   counter++;
+   for (i=0;i<8 && pos<len;i++) buf[pos++] ^= *(0x289c+i);  // XOR keystream
+} while (pos<len);
+```
+
+So the cipher is **XTEA in CTR mode**:
+- keystream block = v0 `0x87654321` (constant, from words 0x4321@289c / 0x8765@289e),
+  v1 = 32-bit **counter**
+- XTEA-encrypt(block, key@0x2830) -> 8 keystream bytes (v0 LE then v1 LE) ->
+  XOR into payload -> counter++ -> repeat
+- being a stream cipher explains arbitrary payload length; the advancing counter
+  explains "every byte changes per packet". The on-air `body[2]` counter is
+  almost certainly this CTR counter (or seeds it).
+
+To replicate (decrypt): key = 4x LE u32 at 0x2830; for each 8-byte chunk,
+block=(0x87654321, counter); XTEA_encrypt; XOR; counter++. Unknowns left: the
+16 key bytes (a flash constant -- extract locally), the counter's per-message
+seed (relate to body[2]), and the XTEA round count (read FUN_0000ac12's loop
+bound; try 32/64 when validating).
+
+Validation plan: XTEA-CTR-decrypt a captured RF body with the extracted key and
+check the plaintext against known structure (device address, frame fields).
+Key bytes stay in the local scratchpad, never committed; publishing decision
+deferred (owner wants a working local decrypt first).
+
 <!-- superseded plan below kept for context; the AESAKEY-trace assumed HW AES -->
 #### [SUPERSEDED] original key-trace plan (assumed HW AES)
 
