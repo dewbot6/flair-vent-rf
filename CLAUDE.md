@@ -56,7 +56,7 @@ Python 3.14.7, IPython 9.16.1. rfcat firmware rev 0606, rflib rev 631.
 
 ## FCC filing data (authoritative -- pulled 2026-08-22)
 FCC ID **2AK78VENTO** (RF Exposure Info doc 6836699, Test Report doc 6836698,
-report SZCR230700230901, both saved locally: see `fcc_test_report.pdf` in this
+report SZCR230700230901, both saved locally: see `docs/fcc_test_report.pdf` in this
 folder). Straight from the filing, not speculation:
 - **Modulation Type: GFSK**
 - **Operation Frequency: 915MHz**
