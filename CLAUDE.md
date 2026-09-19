@@ -5,6 +5,59 @@ Reverse-engineer the proprietary 915 MHz RF protocol between a Flair Smart Vent
 and its Puck hub, so the vent can eventually be controlled directly from Home
 Assistant via a USB dongle -- no Puck required in the final deployment.
 
+## [2026-09-19] CRYPTO FULLY RE'd via Ghidra MCP -- XTEA-CTR, global key
+
+Call graph (Ghidra, cc430_slotA, base 0x8000): frame handler `FUN_0000b858`
+-> `FUN_0000bf34` (CTR driver) -> `FUN_0000ac12` (XTEA core). ac12 has exactly
+ONE caller (bf34); bf34 has ONE caller (b858). So this is the single crypto
+path for the RF link.
+
+Cipher (all confirmed in the decompiler; our Python XTEA matches the published
+key0/pt0 -> dee9d4d8f7131ed9 test vector):
+- **XTEA, 32 cycles / 64 rounds**, delta 0x9E3779B9.
+- **CTR mode**: keystream block input v0 = **0x87654321** (constant, from
+  0x4321@289c / 0x8765@289e), v1 = **counter**. XTEA-encrypt -> 8 keystream
+  bytes (v0 LE then v1 LE) -> XOR into payload -> counter++ -> next block.
+- **Key = 16 bytes at RAM 0x2830** (4x LE u32, indexed key[sum&3] and
+  key[(sum>>11)&3]).
+
+Counter handling (`FUN_0000b858`): counter is a 16-bit value; the **low byte is
+transmitted** in the frame (frame[0x14]) right before the ciphertext
+(frame[0x15..]). Encryption uses the full 16-bit counter, so once it exceeds
+255 the transmitted byte alone is not enough to reconstruct the keystream from
+a capture -- capture-only decryption is fragile; you need the counter state or
+the key + a way to resync.
+
+**The key is GLOBAL, not per-device.** No instruction anywhere writes
+0x2830-0x283f (verified by scanning every non-MOVA operand); the region is only
+read by the cipher. A never-written RAM key can't be .bss (a zero key is
+nonsense), so it is initialized **.data copied from main flash by the C-runtime
+at boot** -- i.e. a constant baked into this firmware image, the same for every
+unit running it. So a no-Puck build IS shareable in principle. (The info flash
+-- magic 0x25ad @ 0x1800, 8-byte records @ 0x1900 -- is the pairing/device
+database, NOT the crypto key.)
+
+**Remaining finish (mechanical):**
+1. Extract the 16 key bytes. Deterministic options: parse the CRT `.data` ROM
+   image (init table near 0xfcf6 references RAM base 0x1c00; key = romdata_src +
+   (0x2830-0x1c00)=+0xC30), OR read RAM 0x2830 live over SBW while the Puck
+   runs, OR an optimized offline key search (the pure-Python sliding search
+   over flash did not converge -- see below).
+2. Resolve the exact on-air counter mapping to validate decryption against
+   captured packets.
+
+Why the offline key search hasn't converged yet: XTEA impl is verified correct,
+so the miss is the counter/on-air mapping (transmitted low-byte vs full 16-bit
+counter) and/or the exact ciphertext offset in the 40-byte fixed-length YARD
+Stick captures -- not the key being absent. Best next attempt: get the key
+bytes deterministically (CRT .data or SBW live read), then counter falls out by
+decrypting a capture and finding the value that yields structured plaintext.
+
+Ghidra MCP is set up (user scope, port 8089); the cc430 program is in the
+"CC430" project. Tools: decompile_function, disassemble_function, read_memory,
+etc. Inline scripts are gated off (GHIDRA_MCP_ALLOW_SCRIPTS); use headless
+analyzeHeadless (JAVA_HOME=openjdk@21, .java post-scripts) for xref/bulk work.
+
 End state: a USB-connected sub-GHz radio (currently a YARD Stick One) plugged
 into the Home Assistant host, running a script/service that can open, close,
 and set position on the vent by replaying/forging its native RF packets.
