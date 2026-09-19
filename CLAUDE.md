@@ -638,6 +638,40 @@ The `0x0E` UART frames seen during pairing (`02 00 01 00 f2 f5 00 00`,
 `06 00 04 60 4e f5 00 00`, dir `0x11`) are the CC430 reporting config/telemetry
 *up* to the ESP -- small structured values, not key material.
 
+#### [2026-09-19] ESP->CC430 direction captured during pairing -- still no key
+
+Did exactly the above: moved RX to the ESP's transmit line (confirmed
+`src=0x0001` frames) and ran a full forget/re-add pairing while capturing
+(`captures/pair_esp_side_dual.json`). Result:
+
+- ESP->CC430 carried only steady-state types (`0x05` heartbeat, `0x03` short).
+- The `0x05` frames were **byte-for-byte identical** throughout -- zero varying
+  byte positions -- at entropy 3.60 (structured, not key-like).
+- **Zero** non-steady-state frames appeared during the entire pairing.
+
+So the ESP provisions nothing to the CC430 over UART during a re-pair.
+
+**Caveat on interpretation:** a forget/re-add in the Flair app is cloud-level;
+the vent almost certainly still held its original key, so nothing *needed*
+re-provisioning. We could not force a genuine first-time provisioning because
+no factory reset that clears the vent's stored key has been found (the Flair
+"reset" article describes only reboots). So this shows *re-association carries
+no key*, which is not quite the same as *first-provisioning carries no key*.
+
+**Bottom line: every observable over-the-wire path is exhausted.** No key
+appears on RF (reboot/rejoin/pair) or on either UART direction. The key exists
+only inside the chips -- factory-burned, or provisioned once at manufacture and
+stored. The only remaining routes to it are firmware reads:
+1. **Spy-Bi-Wire on the CC430** (see SBW section -- shorter leads next).
+2. **ESP8266 flash dump** (esptool; an early attempt did not complete).
+
+Both are legitimate reads of hardware we own. Neither needs any further RF or
+UART capture -- that avenue is done.
+
+Note for returning to UART *control* later: RX is currently on the ESP's
+transmit line. `cc430_drive.py` needs TX on the CC430's receive line and the
+ESP silenced, per the milestone section above.
+
 #### Why this took so long -- the missing piece was the sync word
 
 Step 11 above tested **38.4 kbps / 20 kHz deviation** -- essentially the
