@@ -751,23 +751,36 @@ from a device-unique value (per-device) is the question this answers.
 The Ghidra-ready images are `cc430_slotA_base8000.bin` / `..slotB..` in the
 local scratchpad -- vendor firmware, NOT committed (see `.gitignore`).
 
-#### [2026-09-19] Cipher identified: hardware AES-128
+#### [RETRACTED] "hardware AES-128" -- was a byte-search false positive
 
-No standard cipher *constants* are in the image (no AES S-box, TEA delta,
-ChaCha sigma) -- because the CC430 uses its **on-chip AES-128 accelerator**.
-The peripheral registers are all referenced in slotA:
+An earlier pass claimed the CC430 used its on-chip AES accelerator, based on a
+raw byte-search finding the AES register addresses 0x09C6/C8/CC/CE as 16-bit
+words in the image (AESAXDIN "35 refs", etc.). **That is wrong.** Confirmed in
+Ghidra: those bytes are MSP430X **`MOVA Rn,Rm` register-move instructions**,
+whose opcodes coincide exactly with the AES register addresses:
 
-| reg | addr | refs |
-|---|---|---|
-| AESAKEY | 0x09C6 | **1** |
-| AESADIN | 0x09C8 | 2 |
-| AESADOUT | 0x09CA | 1 |
-| AESAXDIN | 0x09CC | 35 |
-| AESAXIN | 0x09CE | 4 |
+- `c6 09` = `MOVA R9,R6`  (not a write to AESAKEY 0x09C6)
+- `c8 09` = `MOVA R9,R8`  |  `cc 09` = `MOVA R9,R12`  |  `ce 09` = `MOVA R9,R14`
 
-So the RF payload is **AES-128**, done in silicon. The single `AESAKEY` write
-is the one spot where the key enters the engine -- disassembling around it and
-tracing the source operand answers the whole question:
+`MOVA R9,Rm` is a very common move, which is why there were "35" of them. So
+there is **no evidence of hardware AES** from that search. The cipher is
+UNKNOWN again. (Whether the CC430F5137 even has an AES peripheral is unverified
+and shouldn't be assumed.)
+
+What still holds: the RF payload IS encrypted (measured -- ~7 bits/byte, every
+byte changes per packet). Only the *algorithm* is unresolved.
+
+Lesson: byte-level searches for peripheral addresses on MSP430X are unreliable
+because MOVA opcodes alias the 0x09xx / 0x0Cxx SFR range. Determine peripheral
+use from *disassembled references* (map the SFR block so refs resolve), not raw
+byte matches.
+
+<!-- superseded plan below kept for context; the AESAKEY-trace assumed HW AES -->
+#### [SUPERSEDED] original key-trace plan (assumed HW AES)
+
+The single `AESAKEY` write was going to be the one spot where the key enters the
+engine -- disassembling around it and tracing the source operand answers the
+whole question:
 
 - key is a **constant in flash** -> same for all units -> **global -> shareable**
 - key is **derived** from a device-unique value (serial/MAC/factory word) ->
