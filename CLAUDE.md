@@ -42,12 +42,30 @@ claimed "global .data" -- that was premature. What's actually established:
   paired-device records @ 0x1900). Info flash is per-device, factory/pairing
   programmed, and is NOT part of the main-flash image we pulled from the ESP.
 
-Best current read: the XTEA key is **per-device, in the CC430 info flash**,
-copied to RAM 0x2830 at init. If so, a single shareable no-Puck key is NOT
-possible -- each Puck has its own, and a shared repo would ship the *method*
-(read your own Puck's key) not a master key. NOT yet proven; the SBW read
-settles it (read RAM 0x2830 = the key; read info flash 0x1800-0x19ff = see if
-the key lives there / whether it's per-device).
+[UPDATE] Info-flash contents fully mapped (Ghidra headless) -- and there is NO
+16-byte key in it, which flips the lean back toward GLOBAL:
+- **0x1800** provisioning: magic 0x25ad (x2) + small 4-byte values (0x180c and
+  0x1840 are read 4 bytes each into RAM). Not a key.
+- **0x1880** the PERSISTENT CTR COUNTER: FUN_0000d460/b8e2 save RAM counter
+  (_DAT_0x28a8, 32-bit) here with an f00d/c001 marker. Survives reboots.
+- **0x1900** paired-device list: 8-byte records, up to 32 (b8e2 appends, c9c6
+  looks up). The device address DB.
+- **0x1980** spare/erased.
+Every info-flash read is 4 or 8 bytes -- no 16-byte key load. So the XTEA key
+at 0x2830 is most likely a **main-flash .data constant = GLOBAL/shareable**,
+not per-device. (Corrects the earlier per-device lean.)
+
+This also explains the failed capture-only key search: the CTR counter is a
+**persistent 32-bit value** (info flash 0x1880), so after the Puck has run it is
+large, and only its low byte is on air -- a 16-bit counter sweep can't
+reconstruct it. The search missed on the counter, not on key absence.
+
+SBW should therefore read BOTH: RAM 0x2830 (the 16-byte key) AND RAM 0x28a8 /
+info-flash 0x1880 (the live 32-bit counter). With key + counter, capture
+decryption is deterministic. (Still can't statically dump the key bytes -- the
+0x2830 write is a CRT running-pointer copy with no literal address -- so the
+SBW read remains the extraction step; global-vs-per-device is now
+evidence-based GLOBAL rather than assumed.)
 
 **Remaining finish -- the 16 key bytes are NOT yet extracted.** Attempts so far:
 - Offline sliding-window search over main flash (Python): did NOT converge.
