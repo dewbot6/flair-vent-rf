@@ -78,6 +78,19 @@ def main():
 
     end = time.time() + args.seconds
     n_rf = n_uart_seen = 0
+    last_save = 0.0
+
+    def save():
+        # Write incrementally. An earlier version only saved on completion, so
+        # stopping the run early discarded the entire capture.
+        snap = sorted(events, key=lambda e: e["t"])
+        if snap:
+            t0 = snap[0]["t"]
+            for e in snap:
+                e["dt"] = round(e["t"] - t0, 4)
+        with open(args.out, "w") as f:
+            json.dump(snap, f, indent=1)
+
     try:
         while time.time() < end:
             try:
@@ -99,15 +112,16 @@ def main():
                         print(f"  [UART] {e['src']:6s} type=0x{e['type']:02X} len={e['len']}",
                               flush=True)
                 n_uart_seen = sum(1 for e in events if e["kind"] == "uart")
+            if time.time() - last_save > 10:
+                save()
+                last_save = time.time()
+    except KeyboardInterrupt:
+        print("\ninterrupted -- saving what we have")
     finally:
         stop.set()
         d.setModeIDLE()
-
+        save()
     events.sort(key=lambda e: e["t"])
-    t0 = events[0]["t"] if events else 0
-    for e in events:
-        e["dt"] = round(e["t"] - t0, 4)
-    json.dump(events, open(args.out, "w"), indent=1)
     nu = sum(1 for e in events if e["kind"] == "uart")
     print(f"\n{nu} UART frames, {n_rf} RF packets -> {args.out}")
 
