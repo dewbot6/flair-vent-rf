@@ -76,16 +76,32 @@ class and state, at ~7 bits/byte entropy.
 | goal | state |
 |---|---|
 | UART protocol decoded | done |
-| Proportional vent control via CC430 | done |
+| Proportional vent control via CC430 (Puck in loop) | done |
 | RF PHY + framing | done |
 | RF payload decode / forge | **blocked — encrypted** |
 | Vent control with no Puck hardware | blocked on the above |
 
-Controlling the vent over RF with no Puck requires key material from the
-CC430, which makes a Spy-Bi-Wire firmware/register read the critical path. An
-attempt with an eZ-FET LaunchPad reached the FET but not the target; lead
-length and jumper wiring are the untested suspects, and the JTAG fuse has not
-been ruled out.
+The RF application payload is encrypted (~7 bits/byte, changes every packet).
+No key crosses any wire: captures during reboot, rejoin, and pairing show no
+key on the RF or on either UART direction, so the key lives only inside the
+CC430.
+
+**Where the key is, and the current lead.** The ESP sends the CC430 high-level
+*plaintext* commands; the CC430 does the RF encryption. So the RF cipher lives
+in the CC430 firmware. That firmware turns out to be **embedded in the ESP8266
+flash** (the ESP reflashes the CC430 over BSL and caches its "Sub Ghz" image),
+which a full ESP flash dump recovered. Disassembling that MSP430 image is the
+active path to the key/scheme — no Spy-Bi-Wire required. SBW (an eZ-FET
+LaunchPad attempt reached the FET but not the target) is the backup.
+
+Whether a no-Puck build is shareable hinges on one question the disassembly
+answers: is the key a global firmware constant (same image for every unit,
+pulled from Flair's cloud → shareable) or per-device/derived (not)?
+
+> Note: the raw ESP dump contains WiFi credentials and cloud tokens, and the
+> CC430 images are Flair's firmware. Those binaries are kept local and are
+> gitignored — this repo holds findings and method only, never secrets or
+> vendor firmware.
 
 ## Tools
 
@@ -98,9 +114,15 @@ been ruled out.
 | `saleae_capture.py` | Two-channel Logic 8 capture with timed toggle cues. |
 | `analyze_capture.py` | Correlate captured frames against those cues to find command bytes. |
 | `rf_receive.py` | Receive vent RF packets with a YARD Stick One. |
+| `rf_triggered.py` | Trigger a transmission over UART and capture the resulting RF burst. |
 | `rf_sweep_constrained.py` | PHY sweep (superseded by the IQ measurement, kept for reference). |
 | `dual_capture.py` | Simultaneous timestamped UART + RF capture. |
-| `capture.py`, `burst_capture.py`, `freq_sweep.py` | Earlier RSSI-gated RF experiments. |
+| `uart_replay.py` | Replay a captured UART command frame (early experiment, pre-CRC). |
+| `crack_checksum.py`, `crack_checksum2.py` | CRC search over captured frames (how the CRC was found). |
+| `capture.py`, `burst_capture.py`, `freq_sweep.py`, `analyze_sweep.py`, `sweep_configs.py`, `sync_capture.py` | Earlier RSSI-gated RF experiments. |
+
+The ESP8266 flash dump used `esptool` directly (no script). See CLAUDE.md for
+the pinout, the flash map, and the location of the embedded CC430 firmware.
 
 Raw captures (UART logs, RF packet dumps, Saleae exports) live in
 [`captures/`](captures/). Scripts default to reading from and writing to that
