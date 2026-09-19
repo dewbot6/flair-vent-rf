@@ -672,6 +672,55 @@ Note for returning to UART *control* later: RX is currently on the ESP's
 transmit line. `cc430_drive.py` needs TX on the CC430's receive line and the
 ESP silenced, per the milestone section above.
 
+### [2026-09-19] ESP8266 flash dumped -- architecture confirmed, CC430 FW recovered
+
+Dumped the full 4MB ESP8266 flash over its serial bootloader (esptool, own
+hardware). The adapter's auto-reset put it in download mode with no manual
+toggling. Chip ESP8266EX, 4MB, MAC matches the boot log (same Puck).
+
+**Handling:** the raw dump contains the WiFi SSID/password and cloud
+credentials/TLS material. It stays in the local scratchpad and is NOT
+committed. `.gitignore` now blocks `*.bin`/`esp_flash*`/`cc430_*.bin`. The
+repo gets *findings and method* only -- never the binary or any secret.
+
+Flash map:
+- `0x000000` & `0x080000` -- two ESP app OTA slots (user1/user2)
+- `0x100000` -- `ESfs` filesystem, just `logo.png` for the display
+- `0x160000` -- small config area
+- `0x3c0000` & `0x3d0000` -- **the CC430 "Sub Ghz" firmware images** (two OTA
+  slots, ~32KB each, MSP430 machine code confirmed by opcode patterns)
+- `0x3d0000`+ / end -- SDK RF-cal and system-param (WiFi creds live here)
+
+**Architecture, now confirmed from strings:**
+- ESP does WiFi (WPA supplicant) + cloud (`http://api.flair.co`, `puck-api`,
+  TLS) + the display. Strings: `CC430 Set desired temperature: %d`,
+  `Display Command: %d, Position: %d`, `Request position updates`.
+- The ESP sends the CC430 **high-level plaintext** commands over UART; the
+  **CC430 does the RF encryption**. This matches our own result: a forged
+  *plaintext* `byte[22]` UART command moved the vent while RF stayed encrypted.
+- So the RF key is in the **CC430**, never in the ESP app -- consistent with
+  every capture showing no key on any wire.
+- The ESP can reflash the CC430 (`Trigger CC430 BSL`, `Sub ghz firmware
+  download successful`, `/local/sub_ghz/%d/%s`, `http://firmware.flair.co`).
+
+**Big consequence:** the CC430 firmware -- which contains the RF cipher -- is
+*embedded in the ESP flash we already have* (`0x3c0000`/`0x3d0000`). So the RF
+key/scheme can potentially be recovered by **disassembling that image, with no
+Spy-Bi-Wire needed**. SBW drops from critical-path to backup.
+
+**Caveat / next step:** the two slots share only ~7.7% of bytes and the MSP430
+reset vector is not at the raw-image location, so these are in Flair's OTA
+*container* format (downloaded as files, flashed via BSL), not a plain memory
+image. Working out that wrapper + load address, then MSP430 disassembly
+(Ghidra has an MSP430 target) to locate the cipher and key, is the next real
+task. That also answers the shareability question: a key that is a firmware
+constant (same image for everyone, pulled from Flair's cloud) is global and
+shareable; a per-device/derived key is not.
+
+Note: reflashing the CC430 via its BSL is *also* now a known path (the ESP does
+it), but BSL mass-erase/read protection on the MSP430 may gate it -- untested,
+and not needed if the embedded image disassembles.
+
 #### Why this took so long -- the missing piece was the sync word
 
 Step 11 above tested **38.4 kbps / 20 kHz deviation** -- essentially the
