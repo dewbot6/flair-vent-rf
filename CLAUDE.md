@@ -535,6 +535,44 @@ d.setEnableMdmManchester(False); d.makePktFLEN(40); d.setModeRX()
 So the UART protocol work above (frame layout, the `byte[22]` position command)
 should carry almost directly into forging RF packets.
 
+#### RF frame layout: 64-bit addressed
+
+```
+LEN | addr1 (8 bytes) | addr2 (8 bytes) | body
+```
+
+Three address values seen, with the slots swapping by direction:
+
+| address | note |
+|---|---|
+| `00 12 4B 00 38 0D 16 FD` | `00:12:4B` is the **Texas Instruments OUI** -- an IEEE EUI-64 |
+| `46 81 9E E3 00 1D 00 0F` | the other endpoint |
+| `FF FF FF FF FF FF FF FF` | broadcast |
+
+**This reframes the UART findings.** What this file previously called the
+"command/transaction signature" (`00 12 4B 00 38 0D 16 FD`) and the
+"steady-state heartbeat signature" (`46 81 9E E3 00 1D 00 0F`) are not opaque
+markers at all -- they are **device addresses**, and they appear at offset
+10-17 of the UART frames for the same reason. The UART frame's
+`byte[22]` position field therefore sits 4 bytes past the end of an address
+field, not at an arbitrary offset.
+
+Which physical device is which is not yet pinned down. The TI OUI is
+suggestive but both ends are TI silicon, so it is not decisive on its own.
+
+#### [OPEN] The RF body is high-entropy -- position byte not visible
+
+Bodies begin with a plausible type/control byte (`0x42`, `0x43`, `0x60`,
+`0x7D`) and an incrementing sequence byte, after which they look random.
+Crucially, **the `0x00`/`0x64` position value that is plainly visible in the
+UART command frame does not appear anywhere in the RF body**, across packets
+captured while alternating commanded position.
+
+So the RF application payload is probably encrypted or scrambled above the PHY
+-- which would make forging a position command harder than the UART work
+suggests. Not yet investigated; do not assume the UART frame layout maps
+one-to-one onto the RF body.
+
 #### Why this took so long -- the missing piece was the sync word
 
 Step 11 above tested **38.4 kbps / 20 kHz deviation** -- essentially the
