@@ -603,6 +603,41 @@ Note there is already a working control path today: driving the CC430 over
 UART gives full proportional control (see the milestone above). It just needs
 Puck hardware in the loop, which the original goal wanted to avoid.
 
+#### [2026-09-19] No key crosses the sub-GHz air -- reboot, rejoin, OR pairing
+
+Tested directly with simultaneous UART + decoded-RF (YARD Stick) + wideband IQ
+(RTL-SDR) captures across three events:
+
+- **Vent cold boot / reboot** (battery pull, `captures/vent_boot_dual.json`):
+  louvers cycled + LED confirmed a real reboot. RF showed a power-on announce
+  burst (the `broadcast->TI` `43xx`/`42xx` packet types) at the boot moment,
+  then settled to the steady 4-packet handshake. All encrypted, same format.
+- **App re-pair** (forget + re-add, `captures/pairing_capture3_dual.json`):
+  RF stayed on the known channel in the known encrypted format throughout; the
+  wideband IQ found no bursts on any other frequency (caveat: that IQ run was
+  low-SNR, ~1.6x, so the off-channel negative is suggestive not airtight -- but
+  the YARD Stick decoded the normal handshake the whole time).
+
+So a link key is never established over the sub-GHz air, in any of these. This
+closes the "capture a pairing and derive the key from RF" idea.
+
+**[KEY GAP -- the one wire never tapped] ESP8266 -> CC430 UART direction.**
+Every UART capture so far has RX on the CC430's transmit line, i.e. we only see
+**CC430 -> ESP** (dir `0x11`). We have *no* capture of **ESP -> CC430** (dir
+`0x01`) during a pairing. This matters because of the cloud-brokering
+hypothesis: if the key is provisioned per-device from Flair's cloud, its path
+is cloud -> WiFi -> ESP -> (UART) -> CC430, and that last hop is on the wire we
+have never listened to. It would likely be plaintext (internal bus).
+
+Next capture to do: RX on the **ESP's transmit test point** (listen-only), then
+pair. If a key/credential appears there, that is the provisioning path and it
+is readable. If nothing does, the key is almost certainly factory-burned and
+never transits UART -- which leaves Spy-Bi-Wire as the only route.
+
+The `0x0E` UART frames seen during pairing (`02 00 01 00 f2 f5 00 00`,
+`06 00 04 60 4e f5 00 00`, dir `0x11`) are the CC430 reporting config/telemetry
+*up* to the ESP -- small structured values, not key material.
+
 #### Why this took so long -- the missing piece was the sync word
 
 Step 11 above tested **38.4 kbps / 20 kHz deviation** -- essentially the
