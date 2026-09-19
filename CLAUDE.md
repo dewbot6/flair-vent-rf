@@ -780,6 +780,43 @@ Low stakes (an HVAC damper), but the courteous path is to publish the *method/
 tooling* so legitimate owners extract their own, and/or give Flair a heads-up,
 rather than dropping a master key. Decide with the repo owner before publishing.
 
+#### Ghidra setup + where the analysis stands (2026-09-19)
+
+Environment (all working):
+- `brew install ghidra` -> 12.1.3 at `/opt/homebrew/Cellar/ghidra/12.1.3`,
+  GUI launcher `ghidraRun`, headless `libexec/support/analyzeHeadless`.
+- Headless needs a JDK explicitly: `export JAVA_HOME=/opt/homebrew/opt/
+  openjdk@21/libexec/openjdk.jdk/Contents/Home` before running.
+- Post-scripts: **`.java` scripts work**; `.py` scripts fail with "not started
+  with PyGhidra". Use Java, or launch via `pyghidraRun`, for scripting.
+- Import that works: `-import cc430_slotA_base8000.bin -processor
+  TI_MSP430X:LE:32:default -loader BinaryLoader -loader-baseAddr 0x8000`.
+  Auto-analysis only disassembles what's reachable from the 0x8000 entry;
+  linear `disassemble()` across 0x8000-0xFD0A in a script covers the rest
+  (~5276 instrs).
+
+State of the hunt:
+- Confirmed AES-128 HW is used: `AESAXDIN` (0x09CC) is written ~35 times across
+  **0x872c-0xdf02** at the byte level -- that span holds the encrypt routines.
+- The earlier "1 AESAKEY ref" was a false positive: 0x09c6 at 0x8008 is inside
+  a data table (`08c7 09c6 0ac5 0bc4 ...`), not an instruction. The real
+  key-load uses a pointer/loop, so it won't show 0x09c6 as a literal operand.
+- Gotcha for scripted search: Ghidra renders peripheral immediates as `0x9cc`
+  (no leading zero), not `0x09cc` -- match on the 3-digit form, or match the
+  operand's reference address, not the toString() substring.
+
+**Next step (best done in the Ghidra GUI):** open the ready-analyzed project,
+go to the encrypt routines in 0x872c-0xdf02, find where the AES key is loaded
+(the code that fills the key register before the AESAXDIN write loop), and
+trace its source operand:
+- source = a fixed flash address holding 16 constant bytes -> **global key**
+  (same firmware image for every unit -> a no-Puck build is shareable).
+- source = computed from a device-unique value (serial/MAC/info-flash word) ->
+  **per-device** (each owner extracts their own).
+
+Handle any actual key bytes like the WiFi creds: keep local, do not commit, and
+settle the disclosure question (above) before publishing anything.
+
 #### Why this took so long -- the missing piece was the sync word
 
 Step 11 above tested **38.4 kbps / 20 kHz deviation** -- essentially the
