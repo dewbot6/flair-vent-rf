@@ -23,7 +23,7 @@ DRATE = 38400
 DEVIATION = 20000
 CHAN_BW = 105000
 SYNC_WORD = 0xD391      # transmitted twice -> 32-bit sync
-PKT_LEN = 40
+PKT_LEN = 64   # capture full packets (real frames run to ~60B); earlier 40 truncated them
 
 # Signatures shared with the UART protocol; their presence confirms a real packet.
 CMD_SIG = bytes.fromhex("00124b00380d16fd")
