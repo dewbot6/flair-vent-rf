@@ -721,6 +721,65 @@ Note: reflashing the CC430 via its BSL is *also* now a known path (the ESP does
 it), but BSL mass-erase/read protection on the MSP430 may gate it -- untested,
 and not needed if the embedded image disassembles.
 
+#### CC430 image format -- load parameters for disassembly
+
+Worked out the container so it loads correctly in a disassembler (the two slots
+share an identical startup stub and differ in body -- two firmware versions):
+
+- **Raw MSP430X code**, not wrapped or compressed (entropy ~4.3; a function
+  prologue `SUB #0x1C, SP` sits right at the start; the CC430 core is MSP430X,
+  20-bit).
+- 32KB image maps 1:1 to the CC430F5137 flash at **`0x8000`-`0xFFFF`**, so the
+  **load base is `0x8000`** and code/data runs to ~`0x7d0a` (image offset),
+  rest blank `0xFF`.
+- The standard interrupt vector slot (`0xFF80`-`0xFFFF`, i.e. image offset
+  `0x7F80`+) is blank -- this OTA payload is **code-only**; vectors are set by
+  the BSL/bootloader, not shipped in the image. So start disassembly from the
+  `0x8000` entry and follow calls rather than relying on a vector table.
+
+Ghidra load: language **MSP430X** (`TI_MSP430X:LE:32:default`), base `0x8000`,
+entry `0x8000`. (Ghidra installed via `brew install ghidra`.)
+
+Where to look for the RF cipher, once disassembled: the code path that takes a
+UART command frame and produces the `60 83`/`7d a3` RF body -- i.e. what runs
+between receiving the plaintext `byte[22]` command and handing bytes to the
+radio's TX FIFO. The cipher and any constant key/IV live on that path. The
+`body[2]` sequence counter we see on air is almost certainly the nonce fed to
+it. Whether the key is a firmware constant here (global -> shareable) or derived
+from a device-unique value (per-device) is the question this answers.
+
+The Ghidra-ready images are `cc430_slotA_base8000.bin` / `..slotB..` in the
+local scratchpad -- vendor firmware, NOT committed (see `.gitignore`).
+
+#### [2026-09-19] Cipher identified: hardware AES-128
+
+No standard cipher *constants* are in the image (no AES S-box, TEA delta,
+ChaCha sigma) -- because the CC430 uses its **on-chip AES-128 accelerator**.
+The peripheral registers are all referenced in slotA:
+
+| reg | addr | refs |
+|---|---|---|
+| AESAKEY | 0x09C6 | **1** |
+| AESADIN | 0x09C8 | 2 |
+| AESADOUT | 0x09CA | 1 |
+| AESAXDIN | 0x09CC | 35 |
+| AESAXIN | 0x09CE | 4 |
+
+So the RF payload is **AES-128**, done in silicon. The single `AESAKEY` write
+is the one spot where the key enters the engine -- disassembling around it and
+tracing the source operand answers the whole question:
+
+- key is a **constant in flash** -> same for all units -> **global -> shareable**
+- key is **derived** from a device-unique value (serial/MAC/factory word) ->
+  **per-device**, not shareable as a single value (each owner would extract
+  their own from their own device).
+
+**Responsible-disclosure note for later:** if the key turns out global, publishing
+the raw master key would let anyone within ~915MHz range actuate any Flair vent.
+Low stakes (an HVAC damper), but the courteous path is to publish the *method/
+tooling* so legitimate owners extract their own, and/or give Flair a heads-up,
+rather than dropping a master key. Decide with the repo owner before publishing.
+
 #### Why this took so long -- the missing piece was the sync word
 
 Step 11 above tested **38.4 kbps / 20 kHz deviation** -- essentially the
