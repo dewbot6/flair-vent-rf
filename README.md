@@ -102,6 +102,10 @@ been ruled out.
 | `dual_capture.py` | Simultaneous timestamped UART + RF capture. |
 | `capture.py`, `burst_capture.py`, `freq_sweep.py` | Earlier RSSI-gated RF experiments. |
 
+Raw captures (UART logs, RF packet dumps, Saleae exports) live in
+[`captures/`](captures/). Scripts default to reading from and writing to that
+folder.
+
 ## Hardware
 
 - Flair Smart Vent 4x10 and a Flair Puck (the Puck is a capture aid, not part

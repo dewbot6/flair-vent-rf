@@ -88,7 +88,7 @@ def main():
     p.add_argument("--baud", type=int, default=115200)
     p.add_argument("--trials", type=int, default=6)
     p.add_argument("--window", type=float, default=9.0, help="seconds to capture after each command")
-    p.add_argument("--out", default="rf_triggered_capture.json")
+    p.add_argument("--out", default="captures/rf_triggered_capture.json")
     args = p.parse_args()
 
     ser = serial.Serial(args.port, args.baud, timeout=0.2)

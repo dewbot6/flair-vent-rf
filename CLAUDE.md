@@ -154,7 +154,7 @@ guess degrades gracefully instead of crashing a whole sweep.
 4. [DONE] RSSI-gated capture loop built (`capture.py`) -- confirmed silent
    with vent unpowered/Puck off before bringing traffic sources into the
    picture (0 hits baseline).
-5. [DONE] Captured Puck<->vent pairing (vent powered, `vent_pairing_capture_powered.log`,
+5. [DONE] Captured Puck<->vent pairing (vent powered, `captures/vent_pairing_capture_powered.log`,
    1400 hits, strong -40 to -52 dBm signal -- unambiguously real RF, not noise).
 6. [DONE] Coarse 905-925MHz RSSI sweep (`freq_sweep.py`) found real carrier
    energy centered ~906-908 MHz, not 915.0 MHz as hypothesized. But a
@@ -367,7 +367,7 @@ byte3    00
 So **ESP8266 = node 0x0001, CC430 = node 0x0000**, and `0x11` looks like
 `0x01` plus a `0x10` "from node 0" / response flag.
 
-Direction confirmed the unambiguous way: `uart_monitor_live.log` is the only
+Direction confirmed the unambiguous way: `captures/uart_monitor_live.log` is the only
 capture containing ESP8266 NONOS SDK text (`scandone`, `mode : sta`,
 `add if0`, `Gipsy Danger`), and every frame in it is `0x01`/src=`0x0001`.
 All other logs are `0x11` and carry the `TX succeeded` text (the CC430
@@ -382,7 +382,7 @@ frames instead.
 
 ### [SOLVED 2026-09-18] The ESP->CC430 position command, captured at last
 
-Two-channel Saleae capture (`saleae_out/uart_20260918_141537.*`, 420s, 8 cued
+Two-channel Saleae capture (`captures/saleae_out/uart_20260918_141537.*`, 420s, 8 cued
 toggles) finally caught the ESP8266 -> CC430 command. The two frames differ in
 **exactly one byte** (plus the CRC):
 
@@ -563,7 +563,7 @@ suggestive but both ends are TI silicon, so it is not decisive on its own.
 #### [CONFIRMED] The RF application payload is ENCRYPTED
 
 Established from a 6-minute dual UART+RF capture with the ESP8266 reconnected
-and the Puck running normally (`dual_capture.json`, 151 UART frames, 50 RF
+and the Puck running normally (`captures/dual_capture.json`, 151 UART frames, 50 RF
 packets, several app-initiated open/close commands).
 
 Body layout, after the addresses:

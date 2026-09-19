@@ -104,7 +104,7 @@ def exhaustive_search(frames):
 
 
 if __name__ == "__main__":
-    path = sys.argv[1] if len(sys.argv) > 1 else "uart_monitor_poweron_sequence.log"
+    path = sys.argv[1] if len(sys.argv) > 1 else "captures/uart_monitor_poweron_sequence.log"
     frames = load_frames(path)
     print(f"Loaded {len(frames)} unique frames total.")
     exhaustive_search(frames)

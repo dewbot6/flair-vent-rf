@@ -91,7 +91,7 @@ def main():
     p.add_argument("--tail", type=float, default=40.0, help="quiet seconds after last cue")
     p.add_argument("--sample-rate", type=int, default=2_000_000)
     p.add_argument("--channels", type=int, nargs=2, default=[0, 1])
-    p.add_argument("--outdir", default="saleae_out")
+    p.add_argument("--outdir", default="captures/saleae_out")
     p.add_argument("--sim", action="store_true", help="use Logic 2's simulation device (pipeline test, no hardware)")
     p.add_argument("--no-prompt", action="store_true", help="don't wait for Enter before capturing")
     p.add_argument("--launch", action="store_true", help="launch Logic 2 instead of connecting to a running instance")

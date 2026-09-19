@@ -61,7 +61,7 @@ if __name__ == "__main__":
     import glob
 
     FRAME_RE = re.compile(r"FRAME \(len=(\d+)\): ([0-9A-F ]+)")
-    paths = sys.argv[1:] or glob.glob("uart_monitor_*.log")
+    paths = sys.argv[1:] or glob.glob("captures/uart_monitor_*.log")
     ok = bad = skipped = 0
     for path in paths:
         for line in open(path):

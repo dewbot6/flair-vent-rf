@@ -50,4 +50,4 @@ def analyze(logfile):
 
 
 if __name__ == "__main__":
-    analyze(sys.argv[1] if len(sys.argv) > 1 else "sweep_output.log")
+    analyze(sys.argv[1] if len(sys.argv) > 1 else "captures/sweep_output.log")

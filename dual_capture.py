@@ -63,7 +63,7 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("port")
     p.add_argument("--seconds", type=float, default=300.0)
-    p.add_argument("--out", default="dual_capture.json")
+    p.add_argument("--out", default="captures/dual_capture.json")
     args = p.parse_args()
 
     events = []

@@ -105,7 +105,7 @@ def main():
     p.add_argument("--port", help="UART port; if given, trigger transmissions per config")
     p.add_argument("--window", type=float, default=8.0)
     p.add_argument("--freq", type=float, default=915.0)
-    p.add_argument("--out", default="rf_sweep_constrained.json")
+    p.add_argument("--out", default="captures/rf_sweep_constrained.json")
     args = p.parse_args()
 
     ser = None
