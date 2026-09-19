@@ -1,0 +1,11 @@
+{
+  "capture": "rf_known_commands.json",
+  "note": "Full-length RF during app-commanded open/close. State inferred from user reports + counter timing. Two counter streams: ~0x7b-0x80 (other->TI 6083/7d2b) and ~0xa9-0xaf (TI->other 7da3/600b).",
+  "states": [
+    {"t_range": [0, 43],   "state": "OPEN",   "note": "vent open at capture start"},
+    {"t_range": [44, 96],  "state": "CLOSED", "note": "after 1st close cmd"},
+    {"t_range": [97, 129], "state": "OPEN",   "note": "after open cmd; user confirmed 'Vent opened'"},
+    {"t_range": [130, 360],"state": "CLOSED", "note": "after final close cmd"}
+  ],
+  "validation_plan": "Once key is read (SBW md 0x2830), decrypt same-type packets from an OPEN window vs a CLOSED window; the byte(s) that differ = the position field. Brute-force counter high byte per stream so payload decrypts structured."
+}
