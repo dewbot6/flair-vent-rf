@@ -775,6 +775,35 @@ because MOVA opcodes alias the 0x09xx / 0x0Cxx SFR range. Determine peripheral
 use from *disassembled references* (map the SFR block so refs resolve), not raw
 byte matches.
 
+#### [2026-09-19] Cipher actually identified: XTEA (via Ghidra decompiler)
+
+`FUN_0000ac12` is the cipher. The decompiler shows textbook **XTEA**:
+
+```c
+uVar13 = uVar9 + (uVar12 ^ uVar11) ^ *puVar1 + uVar5;  // (shift^shift)+v ^ (sum+key[i])
+lVar17 = (uVar5 & 3) * 4;  puVar1 = lVar17 + 0x2830;   // key[sum & 3]
+uVar5 = uVar5 + 0x79b9;    // sum += delta, low half 0x79B9
+iVar4 = iVar4 + -0x61c9;   //           high half 0x9E37  (-0x61C9 == 0x9E37)
+```
+
+Fingerprints, all present:
+- **Delta 0x9E3779B9** -- the TEA-family constant, split into 16-bit immediates
+  `0x79B9` + `0x9E37` because it's a 16-bit CPU. THIS is why the earlier
+  byte-search for the delta (`b979379e`) found nothing -- it's never contiguous.
+- **`key[sum & 3]`** indexing -- distinguishes XTEA from plain TEA.
+- `(v<<4 ^ v>>5)+v` round; the shift helpers are FUN_0000d78e / FUN_0000d7c8
+  (they dominated the rotate-count ranking).
+
+Key material: the 128-bit key is in **RAM at 0x2830** (4x 32-bit words,
+0x2830-0x283f); the plaintext block is loaded from 0x289c. Round count is set
+by the loop's sum bound (standard XTEA is 64 Feistel rounds / 32 cycles) --
+confirm from the loop exit.
+
+**Next: find what writes 0x2830** (the key) and 0x289c. If the key is copied
+from a flash constant -> global (shareable); if derived from a device-unique
+value -> per-device. Method note that worked: the decompiler finds structure
+that byte/constant searches miss -- reach for it first next time.
+
 <!-- superseded plan below kept for context; the AESAKEY-trace assumed HW AES -->
 #### [SUPERSEDED] original key-trace plan (assumed HW AES)
 
