@@ -28,14 +28,26 @@ transmitted** in the frame (frame[0x14]) right before the ciphertext
 a capture -- capture-only decryption is fragile; you need the counter state or
 the key + a way to resync.
 
-**The key is GLOBAL, not per-device.** No instruction anywhere writes
-0x2830-0x283f (verified by scanning every non-MOVA operand); the region is only
-read by the cipher. A never-written RAM key can't be .bss (a zero key is
-nonsense), so it is initialized **.data copied from main flash by the C-runtime
-at boot** -- i.e. a constant baked into this firmware image, the same for every
-unit running it. So a no-Puck build IS shareable in principle. (The info flash
--- magic 0x25ad @ 0x1800, 8-byte records @ 0x1900 -- is the pairing/device
-database, NOT the crypto key.)
+**Global vs per-device: UNRESOLVED, now leaning PER-DEVICE.** Earlier notes
+claimed "global .data" -- that was premature. What's actually established:
+- No instruction writes 0x2830-0x283f with a *literal* address (only the cipher
+  reads it). But a pointer-based memcpy (e.g. from info flash) writes it without
+  any literal, so this does NOT prove .data/global.
+- Ciphertext-only key recovery over the WHOLE main-flash image is exhausted and
+  FAILED: sliding 16-byte key window x counter-high-byte sweep (0..255), tested
+  by (a) cross-packet plaintext consistency and (b) zero-density over 20-byte
+  payloads. Best results are pure chance (XTEA impl is verified, so it's not the
+  algorithm). => the key is very likely NOT a constant in the main-flash image.
+- The firmware makes heavy use of INFO flash (magic 0x25ad @ 0x1800; 8-byte
+  paired-device records @ 0x1900). Info flash is per-device, factory/pairing
+  programmed, and is NOT part of the main-flash image we pulled from the ESP.
+
+Best current read: the XTEA key is **per-device, in the CC430 info flash**,
+copied to RAM 0x2830 at init. If so, a single shareable no-Puck key is NOT
+possible -- each Puck has its own, and a shared repo would ship the *method*
+(read your own Puck's key) not a master key. NOT yet proven; the SBW read
+settles it (read RAM 0x2830 = the key; read info flash 0x1800-0x19ff = see if
+the key lives there / whether it's per-device).
 
 **Remaining finish -- the 16 key bytes are NOT yet extracted.** Attempts so far:
 - Offline sliding-window search over main flash (Python): did NOT converge.
@@ -62,9 +74,18 @@ firmware archaeology. (The earlier SBW attempt failed at "Fetching JTAG ID" --
 physical layer: shorten the MDIO/TEST leads to 2-3in, verify the tap is on the
 eZ-FET side of the jumper header.) Keep the bytes local; publishing TBD.
 
-Also still needed: the exact on-air counter mapping (transmitted low byte vs
-full 16-bit counter) to validate capture decryption -- but with the real key in
-hand, decrypt a capture and find the counter that yields structured plaintext.
+On-air layout is now nailed empirically (per-position entropy across captures):
+packet[0:19] constant header (LEN + addr1 + addr2 + type + ctrl), **packet[19]
+= counter low byte** (increments within a session), **packet[20:] = ciphertext**.
+Only the counter low byte is transmitted, so decrypting a capture needs the
+high byte too (brute-force 0..255 per session once the key is known).
+
+**Turnkey tooling is in place for the moment the key is read:**
+- `flair_xtea.py` -- verified XTEA-CTR (decrypt/encrypt/keystream). Set
+  `KEY_BYTES` from the SBW read of RAM 0x2830.
+- `flair_rf_decrypt.py <capture.json>` -- groups packets, brute-forces the
+  counter high byte, prints decrypted payloads. Validates key + pins counter.
+Both run today; they just need the 16 key bytes.
 
 Why the offline key search hasn't converged yet: XTEA impl is verified correct,
 so the miss is the counter/on-air mapping (transmitted low-byte vs full 16-bit
