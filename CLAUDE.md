@@ -37,14 +37,34 @@ unit running it. So a no-Puck build IS shareable in principle. (The info flash
 -- magic 0x25ad @ 0x1800, 8-byte records @ 0x1900 -- is the pairing/device
 database, NOT the crypto key.)
 
-**Remaining finish (mechanical):**
-1. Extract the 16 key bytes. Deterministic options: parse the CRT `.data` ROM
-   image (init table near 0xfcf6 references RAM base 0x1c00; key = romdata_src +
-   (0x2830-0x1c00)=+0xC30), OR read RAM 0x2830 live over SBW while the Puck
-   runs, OR an optimized offline key search (the pure-Python sliding search
-   over flash did not converge -- see below).
-2. Resolve the exact on-air counter mapping to validate decryption against
-   captured packets.
+**Remaining finish -- the 16 key bytes are NOT yet extracted.** Attempts so far:
+- Offline sliding-window search over main flash (Python): did NOT converge.
+  XTEA impl is verified (matches key0/pt0 -> dee9d4d8f7131ed9), so the miss is
+  the counter/on-air mapping, not the algorithm.
+- Static .data-source hunt in Ghidra: harder than expected. There is NO literal
+  0x2830 write (the region is only read by the cipher), and no clean
+  `__crt0_movedata` loop with 0x1c00 bounds. The startup is **C++ with a
+  global-constructor dispatch** (FUN_0000bfa0: WDT init + ctor table at 0xfce8,
+  matching the "Global constructors invoked" boot log). The copy primitives
+  found (0xdd68, 0xe1a4, 0xf23a...) are generic memcpy helpers. So the key is
+  almost certainly memcpy'd from a flash const into the 0x2830 struct region by
+  a C++ constructor via a struct-base pointer -- which is why no literal 0x2830
+  appears. Finding the exact ctor + flash source needs more startup RE. NOT done.
+
+**Cleanest way to finish -- SBW live read (do this):** the key is in RAM 0x2830
+at runtime. With the LaunchPad SBW link working (shorter leads than the first
+attempt), just:
+```
+mspdebug ezfet "md 0x2830 0x10"
+```
+dumps the 16 key bytes straight from the running chip. Deterministic, no
+firmware archaeology. (The earlier SBW attempt failed at "Fetching JTAG ID" --
+physical layer: shorten the MDIO/TEST leads to 2-3in, verify the tap is on the
+eZ-FET side of the jumper header.) Keep the bytes local; publishing TBD.
+
+Also still needed: the exact on-air counter mapping (transmitted low byte vs
+full 16-bit counter) to validate capture decryption -- but with the real key in
+hand, decrypt a capture and find the counter that yields structured plaintext.
 
 Why the offline key search hasn't converged yet: XTEA impl is verified correct,
 so the miss is the counter/on-air mapping (transmitted low-byte vs full 16-bit
